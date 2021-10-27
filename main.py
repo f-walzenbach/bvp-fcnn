@@ -1,84 +1,65 @@
-import math
+import argparse
+import numpy
+import json
+import os
 
 import matplotlib.pyplot as plt
-import numpy
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
-from finite_difference import FiniteDifference
-from neural_network import NeuralNetwork
+from itertools import product
+from itertools import chain
+from test import test
+from networks.fully_connected_neural_network import NeuralNetwork
+from data.utils import read_data_set
 
-left_domain_boundary = 0.5
-right_domain_boundary = 1
-nr_of_grid_points = 50
-
-def activation_function(x):
-    return x
-
-# Initialize the list of points where the solution of the ODE will be approximated
-grid_points = numpy.linspace(
-    left_domain_boundary,
-    right_domain_boundary,
-    nr_of_grid_points
-)
-
-# Initialize the finite difference solver, to generate training data
-ode_solver = FiniteDifference(grid_points, 1, 1, math.cos, math.sin)
-
-# Generate training data
-training = ode_solver.solve()
-
-# Initialize neural network using the sigmoid activation function and 2 hidden layers with 5 nodes each
-net = NeuralNetwork(torch.relu_, [20, 50, 20])
-
-# Use Mean Squared Error as the loss function
-loss_fn = nn.MSELoss()
-optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
-
-# Train the network
-for t in range(3000):
-    # One training means comparing the output of the neural network for every grid point with the solution
-    # computed by the finite difference solver and updating the weights accordingly
-    for i in range(len(grid_points)):
-        # Initialize neural network input
-        net_input = torch.tensor(
-            grid_points[i], dtype=torch.float32).unsqueeze(dim=0)
-
-        # Initialize predicted output
-        pred_output = torch.tensor(
-            training[i], dtype=torch.float32).unsqueeze(dim=0)
-
-        # Compute the neural network output
-        net_output = net(net_input)
-
-        # Compute the loss using Mean Squared Error loss function
-        loss = loss_fn(pred_output, net_output)
-
-        # Reset the gradient buffers
-        net.zero_grad()
-        optimizer.zero_grad()
-
-        loss.backward()
-        optimizer.step()
+with open("config/config.json") as config_file:
+    config = json.load(config_file)
 
 
-net_solutions = []
+def build_neural_network(width, depth, learning_rate, momentum, weight_decay):
+    input_layer = [2 * config["parameters"]["number_of_grid_points"]]
+    hidden_layers = [width] * depth
+    output_layer = [config["parameters"]["number_of_grid_points"]]
+    return NeuralNetwork(input_layer, hidden_layers,
+                         output_layer, learning_rate, momentum, weight_decay)
 
-# Use the trained neural network to compute the solution of the ODE at each grid point
-for i in range(len(grid_points)):
-    net_input = torch.tensor(
-            grid_points[i], dtype=torch.float32).unsqueeze(dim=0)
 
-    net_solutions.append(net(net_input).item())
+parser = argparse.ArgumentParser(description="TODO: Description")
+parser.add_argument("Datafile", metavar="datafile",
+                    type=str, help="File to read data from")
 
-# Plot the solutions
-plot_neural_net = plt.plot(grid_points, net_solutions,
-                           label="neural network solution")
+args = parser.parse_args()
 
-plot_finite_difference = plt.plot(
-    grid_points, training, label="finite difference solution")
+# Hyperparameter space for the grid search
+params = {
+    'width': list(range(10, 2560)),
+    'depth': [2, 3, 4, 5, 6],
+    'lr': [0.1, 0.01, 0.001, 0.0001]
+}
 
-plt.legend()
-plt.show()
+avg_test_errors = {}
+
+for param_choice in list(product(*params.values())):
+    print('Training model with width={}, depth={} and learning_rate={}'.format(
+        param_choice[0], param_choice[1], param_choice[2]))
+
+    network=build_neural_network(
+        param_choice[0], param_choice[1], param_choice[2], 0.9, 0.3)
+
+    training_data=numpy.array_split(read_data_set(args.Datafile), 10)
+    test_errors=[]
+
+    for i in range(len(training_data)):
+        # Prepare data for cross validation
+        test_set=training_data[i]
+        training_set=chain(*(training_data[0:i] + training_data[i+1:]))
+
+        # Train model
+        network.train_model(training_set)
+
+        # Compute error for current test set
+        test_errors.append(test(network, test_set))
+
+    avg_test_errors[param_choice] = numpy.average(test_errors)
+
+param_choice_min_error = min(avg_test_errors, key=avg_test_errors.get)
+print('Parameter choice with minimal error: {}'.format(param_choice_min_error))
