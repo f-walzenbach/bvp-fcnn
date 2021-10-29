@@ -5,40 +5,5 @@
         "upper_bound": 1,
         "lower_boundary_value": 0,
         "upper_boundary_value": 0
-    },
-    "models": {
-        "fully_connected_neural_networks": {
-            "D4_W10_LR01": {
-                "input_layer": [200],
-                "hidden_layers": [
-                    10,
-                    10
-                ],
-                "output_layer": [100],
-                "learning_rate": 0.1,
-                "momentum": 0.9,
-                "weight_decay": 0.3
-            },
-            "D10_W10_LR01": {
-                "input_layer": [200],
-                "hidden_layers": [
-                    10,
-                    10,
-					10,
-					10,
-					10,
-                    10,
-                    10,
-					10,
-					10,
-					10
-                ],
-                "output_layer": [100],
-                "learning_rate": 0.1,
-                "momentum": 0.9,
-                "weight_decay": 0.3
-            }
-        },
-        "deep_operator_networks": {}
     }
 }

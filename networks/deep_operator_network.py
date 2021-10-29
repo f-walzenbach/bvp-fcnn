@@ -1,53 +1,45 @@
+import os
+from pathlib import Path
+import json
 import numpy
 import torch
 import torch.nn as nn
+
+from networks.fully_connected_neural_network import NeuralNetwork
 from solvers.finite_difference import compute_finite_difference_solution
 
-
-class Branch(nn.Module):
-    def __init__(self, input_size):
-        super(Branch, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.Linear(128, 128),
-            nn.Linear(128, 128),
-            nn.Linear(128, 128),
-            nn.Linear(128, 128),
-            nn.Linear(128, 128),
-        )
-
-    def forward(self, u):
-        b = self.model(u)
-        return b
-
-
-class Trunk(nn.Module):
-    def __init__(self):
-        super(Trunk, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(1, 128),
-            nn.Sigmoid()
-        )
-
-    def forward(self, y):
-        t = self.model(y)
-        return t
-
+os.chdir(Path(__file__).absolute().parent)
+with open("../config/config.json") as config_file:
+    config = json.load(config_file)
 
 class UnstackedDeepOperatorNetwork(nn.Module):
-    def __init__(self, input_size):
+    def __init__(
+            self,
+            branch_input_layer,
+            branch_hidden_layers,
+            branch_output_layer,
+            branch_learning_rate,
+            branch_momentum,
+            branch_weight_decay,
+            trunk_input_layer,
+            trunk_hidden_layers,
+            trunk_output_layer,
+            trunk_learning_rate,
+            trunk_momentum,
+            trunk_weight_decay,
+        ):
         super(UnstackedDeepOperatorNetwork, self).__init__()
 
-        self.label = "Deep_Operator_Network"
+        # Dict of training_step -> loss
+        self.training_error_log = {}
+        self.current_training_step = 0
 
-        self.branch = Branch(input_size)
-        self.trunk = Trunk()
+        # TODO: Insert assertion for branch output == trunk output
+        self.branch = NeuralNetwork(branch_input_layer, branch_hidden_layers, branch_output_layer,
+                                       branch_learning_rate, branch_momentum, branch_weight_decay)
 
-        self.branch_optimizer = torch.optim.SGD(
-            self.branch.parameters(), lr=0.0001)
-
-        self.trunk_optimizer = torch.optim.SGD(
-            self.trunk.parameters(), lr=0.0001)
+        self.trunk = NeuralNetwork(trunk_input_layer, trunk_hidden_layers, trunk_output_layer,
+                                       trunk_learning_rate, trunk_momentum, trunk_weight_decay)
 
         self.loss_fn = nn.MSELoss()
 
@@ -55,38 +47,34 @@ class UnstackedDeepOperatorNetwork(nn.Module):
         return torch.matmul(self.branch(u), self.trunk(y))
 
     def backward(self, output, target):
-        self.branch_optimizer.zero_grad()
-        self.trunk_optimizer.zero_grad()
+        self.branch.optimizer.zero_grad()
+        self.trunk.optimizer.zero_grad()
 
         loss = self.loss_fn(output, target)
         loss.backward()
 
-        self.branch_optimizer.step()
-        self.trunk_optimizer.step()
+        self.current_training_step += 1
+        self.training_error_log[self.current_training_step] = loss.item()
+
+        self.branch.optimizer.step()
+        self.trunk.optimizer.step()
 
     def train_model(self, training_set):
-        print("Training Deep Operator Network")
-        index = 1
+        start = config["parameters"]["lower_bound"]
+        stop = config["parameters"]["upper_bound"]
+        num = config["parameters"]["number_of_grid_points"]
+        domain = numpy.linspace(start, stop, num)
+
         for data_point in training_set:
-            print("Current training set index: {}".format(index))
-            index += 1
-            training_data = compute_finite_difference_solution(
-                parameters.discretized_domain,
-                parameters.LOWER_BOUNDARY_VALUE,
-                parameters.UPPER_BOUNDARY_VALUE,
-                data_point[0],
-                data_point[1]
-            )
+            training_data = compute_finite_difference_solution(data_point[0], data_point[1])
 
             model_input = numpy.concatenate((data_point[0], data_point[1]))
 
-            #for _ in range(0, parameters.NUMBER_OF_TRAINING_STEPS):
-            for _ in range(0, 100):
-                for grid_point, target in zip(parameters.discretized_domain, training_data):
-                    output = self(torch.tensor(model_input, dtype=torch.float32),
-                                  torch.tensor([grid_point], dtype=torch.float32))
-                    self.backward(output, torch.tensor(
-                        target, dtype=torch.float32))
+            for grid_point, target in zip(domain, training_data):
+                output = self(torch.tensor(model_input, dtype=torch.float32),
+                              torch.tensor([grid_point], dtype=torch.float32))
+                self.backward(output, torch.tensor(
+                    target, dtype=torch.float32))
 
     def load(self, path):
         state_dict = torch.load(path)

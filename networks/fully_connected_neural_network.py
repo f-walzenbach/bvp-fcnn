@@ -1,27 +1,24 @@
-from typing import List
-
 import numpy
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from solvers.finite_difference import compute_finite_difference_solution
 
-
 class NeuralNetwork(nn.Module):
-    """
-    
-    """
-    
     def __init__(
         self,
         input_layer,
         hidden_layers,
         output_layer,
-        learning_rate=0.001,
-        momentum=0.9,
-        weight_decay=0.1
+        learning_rate,
+        momentum,
+        weight_decay
     ):
         super(NeuralNetwork, self).__init__()
+
+        # Dict of training_step -> loss
+        self.training_error_log = {}
+        self.current_training_step = 0
 
         layers = numpy.concatenate((
             input_layer,
@@ -52,26 +49,15 @@ class NeuralNetwork(nn.Module):
     def backward(self, output, target):
         self.zero_grad()
         self.optimizer.zero_grad()
+
         loss = self.loss_fn(target, output)
         loss.backward()
         self.optimizer.step()
 
-    def train_model(self, training_set: List[tuple[List[float], List[float]]]) -> None:
-        """ Function trains network on given training set
-        
-        Parameters
-        ----------
+        self.current_training_step += 1
+        self.training_error_log[self.current_training_step] = loss.item()
 
-        training_set : List[tuple[List[int], List[int]]]
-            The training set to train the neural network. A list of tuples, that consist of two lists of floats 
-            containing the function values for right-hand-side and left-hand-side functions in the set of ordinary
-            differential equations, given by 
-
-        Returns
-        -------
-        
-        """
-        
+    def train_model(self, training_set):
         for data_point in training_set:
             training_data = compute_finite_difference_solution(data_point[0], data_point[1])
 
